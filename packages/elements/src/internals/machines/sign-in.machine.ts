@@ -1,16 +1,14 @@
 import { type ClerkAPIResponseError, isClerkAPIResponseError } from '@clerk/shared/error';
 import type { OAuthStrategy, SignInResource, Web3Strategy } from '@clerk/types';
 import type { DoneActorEvent, DoneStateEvent, ErrorActorEvent } from 'xstate';
-import { assertEvent, assign, setup } from 'xstate';
+import { assertEvent, assign, log, setup } from 'xstate';
 
-import type { EnabledThirdPartyProviders } from '../../utils/third-party-strategies';
-import { getEnabledThirdPartyProviders } from '../../utils/third-party-strategies';
+import { type EnabledThirdPartyProviders, getEnabledThirdPartyProviders } from '../../utils/third-party-strategies';
 import type { ClerkHostRouter } from '../router';
-import { waitForClerk } from './shared.actors';
+import { waitForClerk, waitForClerkEnvironment } from './shared.actors';
 import * as signInActors from './sign-in.actors';
 import type { FieldDetails, LoadedClerkWithEnv } from './sign-in.types';
 import { assertActorEventDone, assertActorEventError } from './utils/assert';
-import { goToChildState } from './utils/states';
 
 export interface SignInMachineContext {
   clerk: LoadedClerkWithEnv;
@@ -48,37 +46,11 @@ export type SignInMachineEvents =
   | { type: 'START' }
   | { type: 'SUBMIT' };
 
-export const STATES = {
-  Init: 'Init',
-
-  Start: 'Start',
-  StartAttempting: 'StartAttempting',
-  StartFailure: 'StartFailure',
-
-  InitiatingOAuthAuthentication: 'InitiatingOAuthAuthentication',
-  InitiatingWeb3Authentication: 'InitiatingWeb3Authentication',
-
-  FirstFactor: 'FirstFactor',
-  FirstFactorPreparing: 'FirstFactorPreparing',
-  FirstFactorIdle: 'FirstFactorIdle',
-  FirstFactorAttempting: 'FirstFactorAttempting',
-  FirstFactorFailure: 'FirstFactorFailure',
-
-  SecondFactor: 'SecondFactor',
-  SecondFactorPreparing: 'SecondFactorPreparing',
-  SecondFactorIdle: 'SecondFactorIdle',
-  SecondFactorAttempting: 'SecondFactorAttempting',
-  SecondFactorFailure: 'SecondFactorFailure',
-
-  SSOCallbackRunning: 'SSOCallbackRunning',
-
-  Complete: 'Complete',
-} as const;
-
 export const SignInMachine = setup({
   actors: {
     ...signInActors,
     waitForClerk,
+    waitForClerkEnvironment,
   },
   actions: {
     assignResourceToContext: assign({
@@ -94,6 +66,15 @@ export const SignInMachine = setup({
         return event.error;
       },
     }),
+
+    assignThirdPartyProvidersToContext: assign({
+      enabledThirdPartyProviders: ({ context }) => getEnabledThirdPartyProviders(context.clerk.__unstable__environment),
+    }),
+
+    setActive: ({ context }) => {
+      const beforeEmit = () => context.router.push(context.clerk.buildAfterSignInUrl());
+      void context.clerk.setActive({ session: context.resource?.createdSessionId, beforeEmit });
+    },
 
     navigateTo: ({ context }, { path }: { path: string }) => context.router.replace(path),
 
@@ -116,13 +97,14 @@ export const SignInMachine = setup({
     events: {} as SignInMachineEvents,
   },
 }).createMachine({
+  id: 'SignIn',
+  entry: log('SignIn'),
   context: ({ input }) => ({
     clerk: input.clerk,
     router: input.router,
     currentFactor: null,
     fields: new Map(),
   }),
-  initial: STATES.Init,
   on: {
     'FIELD.ADD': {
       actions: assign({
@@ -172,227 +154,242 @@ export const SignInMachine = setup({
         },
       }),
     },
-    'OAUTH.CALLBACK': goToChildState(STATES.SSOCallbackRunning),
+    'OAUTH.CALLBACK': '.SSOCallbackRunning',
   },
+  initial: 'Init',
   states: {
-    [STATES.Init]: {
+    Init: {
+      // We can use `fromTransition` here to send align where we need to be in the flow upon initialization
+      entry: log('Init'),
+      description:
+        'Intialize the Clerk instance and wait for it to be ready. Also fetch the enabled third party providers.',
       invoke: {
         src: 'waitForClerk',
         input: ({ context }) => context.clerk,
-        onDone: {
-          target: STATES.Start,
-          actions: assign({
-            // @ts-expect-error -- this is really IsomorphicClerk up to this point
-            clerk: ({ context }) => context.clerk.clerkjs,
-            enabledThirdPartyProviders: ({ context }) =>
-              getEnabledThirdPartyProviders(context.clerk.__unstable__environment),
-          }),
-        },
+        onDone: 'Start',
       },
     },
-    [STATES.Start]: {
-      entry: ({ context }) => console.log('Start entry: ', context),
-      on: {
-        'AUTHENTICATE.OAUTH': STATES.InitiatingOAuthAuthentication,
-        // 'AUTHENTICATE.WEB3': STATES.InitiatingWeb3Authentication,
-        SUBMIT: STATES.StartAttempting,
-      },
-    },
-    [STATES.StartAttempting]: {
-      entry: () => console.log('StartAttempting'),
-      invoke: {
-        src: 'createSignIn',
-        input: ({ context }) => ({
-          client: context.clerk.client,
-          fields: context.fields,
-        }),
-        onDone: { actions: 'assignResourceToContext' },
-        onError: {
-          target: STATES.StartFailure,
-          actions: 'assignErrorMessageToContext',
+    Start: {
+      id: 'Start',
+      description: 'The first step in the sign in flow.',
+      initial: 'Preparing',
+      entry: log('Start'),
+      states: {
+        Preparing: {
+          entry: log('Preparing'),
+          invoke: {
+            src: 'waitForClerkEnvironment',
+            input: ({ context }) => context.clerk,
+            onDone: {
+              target: 'Idle',
+              actions: 'assignThirdPartyProvidersToContext',
+            },
+            onError: {
+              target: 'Failure',
+              actions: log('Clerk environment failed to load.'),
+            },
+          },
         },
-      },
-      always: [
-        {
-          guard: ({ context }) => context?.resource?.status === 'complete',
-          target: STATES.Complete,
+        Idle: {
+          on: {
+            'AUTHENTICATE.OAUTH': '#SignIn.InitiatingOAuthAuthentication',
+            // 'AUTHENTICATE.WEB3': '#SignIn.InitiatingWeb3Authentication',
+            SUBMIT: 'Attempting',
+          },
         },
-        {
-          guard: ({ context }) => context?.resource?.status === 'needs_first_factor',
-          target: STATES.FirstFactor,
-        },
-      ],
-    },
-    [STATES.StartFailure]: {
-      entry: ({ context }) => console.log('StartFailure entry: ', context),
-      always: [
-        {
-          guard: { type: 'hasClerkAPIErrorCode', params: { code: 'session_exists' } },
-          actions: [
+        Attempting: {
+          invoke: {
+            src: 'createSignIn',
+            input: ({ context }) => ({
+              client: context.clerk.client,
+              fields: context.fields,
+            }),
+            onDone: { actions: 'assignResourceToContext' },
+            onError: {
+              actions: 'assignErrorMessageToContext',
+              target: 'Failure',
+            },
+          },
+          always: [
             {
-              type: 'navigateTo',
-              params: {
-                path: '/',
-              },
+              guard: ({ context }) => context?.resource?.status === 'complete',
+              target: '#SignIn.Complete',
+            },
+            {
+              guard: ({ context }) => context?.resource?.status === 'needs_first_factor',
+              target: '#FirstFactor.Preparing',
             },
           ],
         },
-        {
-          guard: 'hasClerkAPIError',
-          target: STATES.Start,
-        },
-      ],
-    },
-    [STATES.FirstFactor]: {
-      always: 'FirstFactorPreparing',
-    },
-    [STATES.FirstFactorPreparing]: {
-      invoke: {
-        id: 'prepareFirstFactor',
-        src: 'prepareFirstFactor',
-        // @ts-expect-error - TODO: Implement
-        input: ({ context }) => ({
-          client: context.clerk.client,
-          params: {},
-        }),
-        onDone: {
-          target: STATES.FirstFactor,
-          actions: [
-            'assignResourceToContext',
+        Failure: {
+          always: [
             {
-              type: 'navigateTo',
-              params: {
-                path: '/sign-in/factor-one',
-              },
+              guard: { type: 'hasClerkAPIErrorCode', params: { code: 'session_exists' } },
+              actions: [
+                {
+                  type: 'navigateTo',
+                  params: {
+                    path: '/',
+                  },
+                },
+              ],
+            },
+            {
+              guard: 'hasClerkAPIError',
+              actions: 'assignErrorMessageToContext',
+              target: 'Idle',
             },
           ],
         },
-        onError: {
-          target: STATES.Start,
-          actions: ['assignErrorMessageToContext'],
-        },
       },
     },
-    [STATES.FirstFactorIdle]: {
-      on: {
-        SUBMIT: {
-          // guard: ({ context }) => !!context.resource,
-          target: STATES.FirstFactorAttempting,
-        },
-      },
-    },
-    [STATES.FirstFactorAttempting]: {
-      invoke: {
-        id: 'prepareFirstFactor',
-        src: 'prepareFirstFactor',
-        // @ts-expect-error - TODO: Implement
-        input: ({ context }) => ({
-          client: context.clerk.client,
-          params: {},
-        }),
-        onDone: {
-          target: STATES.FirstFactor,
-          actions: [
-            'assignResourceToContext',
-            {
-              type: 'navigateTo',
-              params: {
-                path: '/sign-in/factor-one',
-              },
+    FirstFactor: {
+      id: 'FirstFactor',
+      initial: 'Preparing',
+      description: 'Handles any-and-all steps in the first factor flow. [Optional]',
+      states: {
+        Preparing: {
+          invoke: {
+            id: 'prepareFirstFactor',
+            src: 'prepareFirstFactor',
+            // @ts-expect-error - TODO: Implement
+            input: ({ context }) => ({
+              client: context.clerk.client,
+              params: {},
+            }),
+            onDone: {
+              actions: [
+                'assignResourceToContext',
+                {
+                  type: 'navigateTo',
+                  params: {
+                    path: '/sign-in/factor-two',
+                  },
+                },
+              ],
             },
-          ],
+            onError: {
+              actions: 'assignErrorMessageToContext',
+              target: '#Start',
+            },
+          },
         },
-        onError: {
-          target: STATES.FirstFactorIdle,
-          actions: 'assignErrorMessageToContext',
+        Idle: {
+          on: {
+            SUBMIT: {
+              // guard: ({ context }) => !!context.resource,
+              target: 'Attempting',
+            },
+          },
         },
-      },
-    },
-    [STATES.FirstFactorFailure]: {
-      always: [
-        {
-          guard: 'hasClerkAPIError',
-          target: STATES.FirstFactorIdle,
+        Attempting: {
+          invoke: {
+            id: 'attemptFirstFactor',
+            src: 'attemptFirstFactor',
+            // @ts-expect-error - TODO: Implement
+            input: ({ context }) => ({
+              client: context.clerk.client,
+              params: {},
+            }),
+            onDone: {
+              actions: 'assignResourceToContext',
+              target: 'Success',
+            },
+            onError: {
+              target: 'Idle',
+              actions: 'assignErrorMessageToContext',
+            },
+          },
         },
-        {
-          actions: {
+        Success: {
+          type: 'final',
+          entry: {
             type: 'navigateTo',
             params: {
-              path: '/sign-in/factor-one',
+              path: '/sign-in/factor-two',
             },
           },
         },
-      ],
-    },
-    [STATES.SecondFactor]: {
-      always: STATES.SecondFactorPreparing,
-    },
-    [STATES.SecondFactorPreparing]: {
-      invoke: {
-        id: 'prepareSecondFactor',
-        src: 'prepareSecondFactor',
-        // @ts-expect-error - TODO: Implement
-        input: ({ context }) => ({
-          client: context.clerk.client,
-          params: {},
-        }),
-        onDone: {
-          target: STATES.SecondFactorIdle,
-          actions: ['assignResourceToContext'],
-        },
-        onError: {
-          target: STATES.SecondFactorIdle,
-          actions: ['assignErrorMessageToContext'],
-        },
-      },
-    },
-    [STATES.SecondFactorIdle]: {
-      on: {
-        RETRY: 'SecondFactorPreparing',
-        SUBMIT: {
-          // guard: ({ context }) => !!context.resource,
-          target: STATES.SecondFactorAttempting,
-        },
-      },
-    },
-    [STATES.SecondFactorAttempting]: {
-      invoke: {
-        id: 'prepareFirstFactor',
-        src: 'prepareFirstFactor',
-        // @ts-expect-error - TODO: Implement
-        input: ({ context }) => ({
-          client: context.clerk.client,
-          params: {},
-        }),
-        onDone: {
-          target: STATES.SecondFactorIdle,
-          actions: [
-            'assignResourceToContext',
+        Failure: {
+          always: [
             {
-              type: 'navigateTo',
-              params: {
-                path: '/sign-in/factor-one',
-              },
+              guard: 'hasClerkAPIError',
+              target: 'Idle',
             },
           ],
         },
-        onError: {
-          target: STATES.SecondFactorIdle,
-          actions: ['assignErrorMessageToContext'],
-        },
-      },
-      [STATES.SecondFactorFailure]: {
-        always: [
-          {
-            guard: 'hasClerkAPIError',
-            target: STATES.SecondFactorIdle,
-          },
-          { target: STATES.Complete },
-        ],
       },
     },
-    [STATES.SSOCallbackRunning]: {
-      entry: () => console.log('StartAttempting'),
+    SecondFactor: {
+      id: 'SecondFactor',
+      initial: 'Preparing',
+      description: 'Handles any-and-all steps in the second factor flow. [Optional]',
+      states: {
+        Preparing: {
+          invoke: {
+            id: 'prepareSecondFactor',
+            src: 'prepareSecondFactor',
+            // @ts-expect-error - TODO: Implement
+            input: ({ context }) => ({
+              client: context.clerk.client,
+              params: {},
+            }),
+            onDone: {
+              target: 'Idle',
+              actions: 'assignResourceToContext',
+            },
+            onError: {
+              target: 'Idle',
+              actions: 'assignErrorMessageToContext',
+            },
+          },
+        },
+        Idle: {
+          on: {
+            RETRY: 'Preparing',
+            SUBMIT: {
+              // guard: ({ context }) => !!context.resource,
+              target: 'Attempting',
+            },
+          },
+        },
+        Attempting: {
+          invoke: {
+            id: 'attemptFirstFactor',
+            src: 'attemptFirstFactor',
+            // @ts-expect-error - TODO: Implement
+            input: ({ context }) => ({
+              client: context.clerk.client,
+              params: {},
+            }),
+            onDone: 'Success',
+            onError: {
+              actions: 'assignErrorMessageToContext',
+              target: 'Idle',
+            },
+          },
+        },
+        Success: {
+          type: 'final',
+          entry: {
+            type: 'navigateTo',
+            params: {
+              path: '/sign-in/factor-two', // TODO: Implement
+            },
+          },
+        },
+        Failure: {
+          always: [
+            {
+              guard: 'hasClerkAPIError',
+              target: 'Idle',
+            },
+            { target: 'Idle' },
+          ],
+        },
+      },
+    },
+    SSOCallbackRunning: {
       invoke: {
         src: 'handleSSOCallback',
         input: ({ context }) => ({
@@ -405,23 +402,22 @@ export const SignInMachine = setup({
         }),
         onDone: { actions: 'assignResourceToContext' },
         onError: {
-          target: STATES.StartFailure,
           actions: 'assignErrorMessageToContext',
+          target: 'Start.Failure',
         },
       },
       always: [
         {
           guard: ({ context }) => context?.resource?.status === 'complete',
-          target: STATES.Complete,
+          target: 'Complete',
         },
         {
           guard: ({ context }) => context?.resource?.status === 'needs_first_factor',
-          target: STATES.FirstFactor,
+          target: 'FirstFactor',
         },
       ],
     },
-    [STATES.InitiatingOAuthAuthentication]: {
-      entry: () => console.log('InitiatingOAuthAuthentication'),
+    InitiatingOAuthAuthentication: {
       invoke: {
         src: 'authenticateWithRedirect',
         input: ({ context, event }) => {
@@ -433,13 +429,12 @@ export const SignInMachine = setup({
           };
         },
         onError: {
-          target: STATES.StartFailure,
+          target: '#Start.Failure',
           actions: 'assignErrorMessageToContext',
         },
       },
     },
     // [STATES.InitiatingWeb3Authentication]: {
-    //   entry: () => console.log('InitiatingWeb3Authentication'),
     //   invoke: {
     //     src: 'authenticateWithMetamask',
     //     onError: {
@@ -448,12 +443,9 @@ export const SignInMachine = setup({
     //     },
     //   },
     // },
-    [STATES.Complete]: {
+    Complete: {
       type: 'final',
-      entry: ({ context }) => {
-        const beforeEmit = () => context.router.push(context.clerk.buildAfterSignInUrl());
-        void context.clerk.setActive({ session: context.resource?.createdSessionId, beforeEmit });
-      },
+      entry: 'setActive',
     },
   },
 });

@@ -1,7 +1,12 @@
-import type { Clerk } from '@clerk/types';
 import { fromPromise } from 'xstate';
 
-export const waitForClerk = fromPromise(
-  // @ts-expect-error -- not specified on the type
-  ({ input: clerk }: { input: Clerk }) => new Promise(resolve => clerk.addOnLoaded(resolve)),
+import type { LoadedClerkWithEnv } from './sign-in.types';
+import { waitForLoaded } from './utils/wait-for-loaded';
+
+export const waitForClerk = fromPromise<void, LoadedClerkWithEnv>(({ input: clerk }) =>
+  waitForLoaded(() => clerk.loaded),
+);
+
+export const waitForClerkEnvironment = fromPromise<void, LoadedClerkWithEnv>(({ input: clerk }) =>
+  waitForLoaded(() => Boolean(clerk.__unstable__environment)),
 );

@@ -74,10 +74,7 @@ export const SignInMachine = setup({
     isBrowser: ({ context }) => context.mode === 'browser',
     isClerkLoaded: ({ context }) => context.clerk.loaded,
     isClerkEnvironmentLoaded: ({ context }) => Boolean(context.clerk.__unstable__environment),
-    isComplete: ({ context }) => {
-      console.log(context?.resource);
-      return context?.resource?.status === 'complete';
-    },
+    isComplete: ({ context }) => context?.resource?.status === 'complete',
     isLoggedIn: ({ context }) => Boolean(context.clerk.user),
     isSingleSessionMode: ({ context }) => Boolean(context.clerk.__unstable__environment?.authConfig.singleSessionMode),
     needsFirstFactor: ({ context }) => context.resource?.status === 'needs_first_factor',
@@ -95,10 +92,11 @@ export const SignInMachine = setup({
 }).createMachine({
   id: 'SignIn',
   context: ({ input }) => {
-    console.debug({ clerk: { mode: input.clerk.mode, loaded: input.clerk.loaded } });
+    console.debug({ mode: input.clerk.mode, loaded: input.clerk.loaded });
 
     return {
       clerk: input.clerk,
+      environment: input.clerk.__unstable__environment,
       mode: input.clerk.mode,
       loaded: input.clerk.loaded,
       router: input.router,
@@ -161,12 +159,12 @@ export const SignInMachine = setup({
     DeterminingState: {
       always: [
         {
-          description: 'Wait for the Clerk instance to be ready. [BROWSER]',
+          description: 'Wait for the Clerk instance to be ready.',
           guard: and(['isBrowser', not('isClerkLoaded')]),
           target: 'WaitingForClerk',
         },
         {
-          description: 'If the SignIn resource is empty, invoke the sign-in start flow. [BROWSER]',
+          description: 'If the SignIn resource is empty, invoke the sign-in start flow.',
           guard: and(['isBrowser', 'isClerkLoaded', not('hasSignInResource')]),
           target: 'Start',
         },
@@ -194,45 +192,30 @@ export const SignInMachine = setup({
             // @ts-expect-error -- this is really IsomorphicClerk up to this point
             clerk: ({ context }) => context.clerk.clerkjs,
             environment: ({ context }) => context.clerk.__unstable__environment,
+            loaded: true,
           }),
         },
       },
     },
     Start: {
-      description: 'Waiting for user input',
+      description: 'The intial state of the sign-in flow.',
       initial: 'DeterminingState',
       states: {
         DeterminingState: {
           always: [
             {
-              guard: and(['isBrowser', not('isClerkEnvironmentLoaded')]),
-              target: 'WaitingForClerkEnvironment',
-            },
-            {
-              description: 'If the Clerk instance is ready, continue. [BROWSER]',
-              guard: and(['isClerkEnvironmentLoaded', 'isLoggedIn', 'isSingleSessionMode']),
-              target: 'AwaitingInput',
               actions: log('isLoggedIn / isSingleSession - Should show error or redirect'),
+              description: 'If the Clerk instance is ready, continue.',
+              guard: and(['isLoggedIn', 'isSingleSessionMode']),
             },
             {
+              guard: not('isLoggedIn'),
               target: 'AwaitingInput',
-              guard: and(['isClerkEnvironmentLoaded', not('isLoggedIn')]),
             },
           ],
-          exit: assign({
-            environment: ({ context }) => context.clerk.__unstable__environment,
-          }),
-        },
-        // TODO: Implement a better approach (works for now)
-        WaitingForClerkEnvironment: {
-          after: {
-            25: {
-              guard: and(['isBrowser', not('isClerkEnvironmentLoaded')]),
-              target: 'DeterminingState',
-            },
-          },
         },
         AwaitingInput: {
+          description: 'Waiting for user input',
           on: {
             'AUTHENTICATE.OAUTH': '#SignIn.InitiatingOAuthAuthentication',
             SUBMIT: 'Attempting',
@@ -245,7 +228,6 @@ export const SignInMachine = setup({
             input: ({ context }) => ({
               client: context.clerk.client,
               fields: context.fields,
-              params: context.params || {},
             }),
             onDone: {
               actions: assign({
@@ -276,7 +258,6 @@ export const SignInMachine = setup({
             },
           },
         },
-
         Success: {
           always: {
             actions: 'setAsActive',
@@ -489,11 +470,8 @@ export const SignInMachine = setup({
       },
     },
     Complete: {
+      entry: 'setAsActive',
       type: 'final',
-      entry: ({ context }) => {
-        const beforeEmit = () => context.router.push(context.clerk.buildAfterSignInUrl());
-        void context.clerk.setActive({ session: context.resource?.createdSessionId, beforeEmit });
-      },
     },
   },
 });

@@ -1,14 +1,24 @@
 'use client';
 
 import { useClerk } from '@clerk/clerk-react';
-import { useEffect } from 'react';
+import type { InspectedEventEvent } from 'xstate';
 
-import { SignInFlowProvider, useSignInFlow, useSSOCallbackHandler } from '../internals/machines/sign-in.context';
+import { SignInFlowProvider, useSSOCallbackHandler } from '../internals/machines/sign-in.context';
 import type { LoadedClerkWithEnv } from '../internals/machines/sign-in.types';
 import { useNextRouter } from '../internals/router';
 import { Route, Router } from '../internals/router-react';
 
 type WithChildren<T = unknown> = T & { children?: React.ReactNode };
+
+function logInspectionEventEvent(inspectionEvent: InspectedEventEvent) {
+  if (inspectionEvent.event.type === 'xstate.init') {
+    // console.log(inspectionEvent.event.type, inspectionEvent.event.input);
+  } else {
+    console.log(inspectionEvent.event.type, inspectionEvent.event);
+  }
+
+  // console.log(inspectionEvent.event.type, inspectionEvent.event);
+}
 
 export function SignIn({ children }: { children: React.ReactNode }): JSX.Element | null {
   // TODO: eventually we'll rely on the framework SDK to specify its host router, but for now we'll default to Next.js
@@ -27,6 +37,19 @@ export function SignIn({ children }: { children: React.ReactNode }): JSX.Element
             clerk,
             router,
           },
+          inspect(inspectionEvent) {
+            switch (inspectionEvent.type) {
+              case '@xstate.actor':
+                console.log(inspectionEvent);
+                break;
+              case '@xstate.event':
+                logInspectionEventEvent(inspectionEvent);
+                // console.log(inspectionEvent.event.type, inspectionEvent.event);
+                break;
+              case '@xstate.snapshot':
+                break;
+            }
+          },
         }}
       >
         {children}
@@ -35,20 +58,8 @@ export function SignIn({ children }: { children: React.ReactNode }): JSX.Element
   );
 }
 
-export function SignInStartInner({ children }: WithChildren) {
-  const ref = useSignInFlow();
-
-  useEffect(() => ref.send({ type: 'START' }), [ref]);
-
-  return children;
-}
-
 export function SignInStart({ children }: WithChildren) {
-  return (
-    <Route index>
-      <SignInStartInner>{children}</SignInStartInner>
-    </Route>
-  );
+  return <Route index>{children}</Route>;
 }
 
 export function SignInFactorOne({ children }: WithChildren) {

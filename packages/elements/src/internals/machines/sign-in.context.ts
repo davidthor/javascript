@@ -1,10 +1,17 @@
 import type { OAuthStrategy, Web3Strategy } from '@clerk/types';
 import { createActorContext } from '@xstate/react';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import type { SnapshotFrom } from 'xstate';
 
-import { isAuthenticatableOauthStrategy, isWeb3Strategy } from '../../utils/third-party-strategies';
+import {
+  getEnabledThirdPartyProviders,
+  isAuthenticatableOauthStrategy,
+  isWeb3Strategy,
+} from '../../utils/third-party-strategies';
 import { SignInMachine } from './sign-in.machine';
-import type { FieldDetails, SnapshotState } from './sign-in.types';
+import type { FieldDetails } from './sign-in.types';
+
+export type SnapshotState = SnapshotFrom<typeof SignInMachine>;
 
 // ================= MACHINE CONTEXT/HOOKS ================= //
 
@@ -26,7 +33,7 @@ const fieldHasValueSelector = (type: string | undefined) => (state: SnapshotStat
  * Selects a field-specific error, if it exists
  */
 const fieldErrorSelector = (type: string | undefined) => (state: SnapshotState) =>
-  type ? Boolean(state.context.fields.get(type)?.error) : undefined;
+  type ? state.context.fields.get(type)?.error : undefined;
 
 /**
  * Selects a global error, if it exists
@@ -34,15 +41,9 @@ const fieldErrorSelector = (type: string | undefined) => (state: SnapshotState) 
 const globalErrorSelector = (state: SnapshotState) => state.context.error;
 
 /**
- * Selects if the environment is loaded
+ * Selects the clerk environment
  */
-const hasEnvironmentSelector = (state: SnapshotState) => Boolean(state.context.clerk.__unstable__environment);
-
-/**
- * Selects third-party providers details
- */
-const thirdPartyStrategiesSelector = (state: SnapshotState) =>
-  state.context.enabledThirdPartyProviders ? state.context.enabledThirdPartyProviders : undefined;
+const clerkEnvironmentSelector = (state: SnapshotState) => state.context.environment;
 
 // ================= HOOKS ================= //
 
@@ -77,7 +78,8 @@ export const useForm = () => {
  */
 export const useThirdPartyProviders = () => {
   const ref = useSignInFlow();
-  const providers = useSignInFlowSelector(thirdPartyStrategiesSelector);
+  const env = useSignInFlowSelector(clerkEnvironmentSelector);
+  const providers = useMemo(() => env && getEnabledThirdPartyProviders(env), [env]);
 
   // Register the onSubmit handler for button click
   const createOnClick = useCallback(
@@ -119,15 +121,29 @@ export const useField = ({ type }: Partial<Pick<FieldDetails, 'type'>>) => {
   const error = useSignInFlowSelector(fieldErrorSelector(type));
 
   const shouldBeHidden = false; // TODO: Implement clerk-js utils
-  const validity = error ? 'invalid' : 'valid';
+  const hasError = Boolean(error);
+  const validity = hasError ? 'invalid' : 'valid';
 
   return {
     hasValue,
     props: {
       [`data-${validity}`]: true,
       'data-hidden': shouldBeHidden ? true : undefined,
+      serverInvalid: hasError,
       tabIndex: shouldBeHidden ? -1 : 0,
     },
+  };
+};
+
+/**
+ * Provides field-message-specfic props based on the field's type/state
+ */
+export const useFieldError = ({ type }: Partial<Pick<FieldDetails, 'type'>>) => {
+  const error = useSignInFlowSelector(fieldErrorSelector(type));
+  const shouldForceMatch = useCallback((match: string) => match === error?.code, [error?.code]);
+
+  return {
+    shouldForceMatch,
   };
 };
 
@@ -176,7 +192,7 @@ export const useInput = ({ type, value: initialValue }: Partial<Pick<FieldDetail
  */
 export const useSSOCallbackHandler = () => {
   const ref = useSignInFlow();
-  const hasEnv = useSignInFlowSelector(hasEnvironmentSelector);
+  const hasEnv = useSignInFlowSelector(clerkEnvironmentSelector);
 
   // TODO: Wholesale move this to the machine ?
   // Wait for the environment to be loaded before sending the callback event

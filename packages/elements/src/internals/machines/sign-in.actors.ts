@@ -19,10 +19,6 @@ export const createSignIn = fromPromise<SignInResource, WithClient<{ fields: Sig
     const password = fields.get('password');
     const identifier = fields.get('identifier');
 
-    if (!identifier) {
-      throw new Error('Identifier field not present'); // TODO: better error
-    }
-
     const passwordParams = password
       ? {
           password: password.value,
@@ -31,7 +27,7 @@ export const createSignIn = fromPromise<SignInResource, WithClient<{ fields: Sig
       : {};
 
     return client.signIn.create({
-      identifier: identifier.value as string,
+      identifier: identifier?.value as string,
       ...passwordParams,
     });
   },

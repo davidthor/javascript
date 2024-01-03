@@ -1,7 +1,7 @@
 'use client';
 
 import { SignedIn } from '@clerk/clerk-react';
-import { useSignInFlow } from '@clerk/elements';
+import { useSignInFlow, useSignInFlowSelector } from '@clerk/elements';
 import { SignOutButton } from '@clerk/nextjs';
 
 export function Button(props: React.ComponentProps<'button'>) {
@@ -17,19 +17,27 @@ export function Button(props: React.ComponentProps<'button'>) {
 export function Debug() {
   const ref = useSignInFlow();
 
-  return (
-    <div className='absolute text-xs flex p-4 gap-4 bottom-0 w-screen justify-center bg-secondary border-tertiary border-t'>
-      <Button onClick={() => console.dir(ref.getSnapshot().context.fields)}>Log Fields</Button>
-      <Button onClick={() => console.dir(ref.getSnapshot().context)}>Log Context</Button>
-      <Button onClick={() => console.dir(ref.getSnapshot().context.clerk.__unstable__environment)}>
-        Log Environment
-      </Button>
+  const activeState = useSignInFlowSelector(state => state.value);
 
-      <SignedIn>
-        <SignOutButton redirectUrl='/sign-in'>
-          <Button>Sign Out</Button>
-        </SignOutButton>
-      </SignedIn>
+  return (
+    <div className='absolute text-xs flex flex-col p-4 gap-4 bottom-0 w-screen justify-center bg-secondary border-tertiary border-t'>
+      <div className='flex gap-4 bottom-0 w-screen justify-center'>
+        <pre suppressHydrationWarning>Active State: {activeState ? JSON.stringify({ ...activeState }) : ''}</pre>
+      </div>
+
+      <div className='flex gap-4 bottom-0 w-screen justify-center'>
+        <Button onClick={() => console.dir(ref.getSnapshot().context.fields)}>Log Fields</Button>
+        <Button onClick={() => console.dir(ref.getSnapshot().context)}>Log Context</Button>
+        <Button onClick={() => console.dir(ref.getSnapshot().context.clerk.__unstable__environment)}>
+          Log Environment
+        </Button>
+
+        <SignedIn>
+          <SignOutButton redirectUrl='/sign-in'>
+            <Button>Sign Out</Button>
+          </SignOutButton>
+        </SignedIn>
+      </div>
     </div>
   );
 }

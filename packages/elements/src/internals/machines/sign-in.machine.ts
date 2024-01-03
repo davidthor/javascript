@@ -1,23 +1,22 @@
-import { type ClerkAPIResponseError, isClerkAPIResponseError } from '@clerk/shared/error';
-import type { OAuthStrategy, SignInResource, Web3Strategy } from '@clerk/types';
-import type { DoneActorEvent, DoneStateEvent, ErrorActorEvent } from 'xstate';
-import { assertEvent, assign, setup } from 'xstate';
+import type { ClerkAPIResponseError } from '@clerk/shared/error';
+import { isClerkAPIResponseError } from '@clerk/shared/error';
+import type { EnvironmentResource, OAuthStrategy, SignInResource, Web3Strategy } from '@clerk/types';
+import type { MachineContext } from 'xstate';
+import { and, assertEvent, assign, enqueueActions, log, not, raise, setup } from 'xstate';
 
-import type { EnabledThirdPartyProviders } from '../../utils/third-party-strategies';
-import { getEnabledThirdPartyProviders } from '../../utils/third-party-strategies';
 import type { ClerkHostRouter } from '../router';
 import { waitForClerk } from './shared.actors';
 import * as signInActors from './sign-in.actors';
 import type { FieldDetails, LoadedClerkWithEnv } from './sign-in.types';
-import { assertActorEventDone, assertActorEventError } from './utils/assert';
-import { goToChildState } from './utils/states';
 
-export interface SignInMachineContext {
+export interface SignInMachineContext extends MachineContext {
   clerk: LoadedClerkWithEnv;
-  enabledThirdPartyProviders?: EnabledThirdPartyProviders;
+  environment?: EnvironmentResource;
   error?: Error | ClerkAPIResponseError;
   fields: Map<string, FieldDetails>;
-  resource?: SignInResource;
+  loaded: boolean;
+  mode: 'browser' | 'server';
+  resource: SignInResource | null;
   router: ClerkHostRouter;
 }
 
@@ -27,11 +26,9 @@ export interface SignInMachineInput {
 }
 
 export type SignInMachineEvents =
-  | DoneActorEvent
-  | ErrorActorEvent
-  | DoneStateEvent
   | { type: 'AUTHENTICATE.OAUTH'; strategy: OAuthStrategy }
   | { type: 'AUTHENTICATE.WEB3'; strategy: Web3Strategy }
+  | { type: 'ERROR.REPORT'; error: Error }
   | { type: 'FIELD.ADD'; field: Pick<FieldDetails, 'type' | 'value'> }
   | { type: 'FIELD.REMOVE'; field: Pick<FieldDetails, 'type'> }
   | {
@@ -45,8 +42,16 @@ export type SignInMachineEvents =
   | { type: 'NEXT' }
   | { type: 'OAUTH.CALLBACK' }
   | { type: 'RETRY' }
-  | { type: 'START' }
   | { type: 'SUBMIT' };
+
+export type SignInTags = 'start' | 'first-factor' | 'second-factor' | 'complete';
+
+export interface SignInMachineTypes {
+  context: SignInMachineContext;
+  input: SignInMachineInput;
+  events: SignInMachineEvents;
+  tags: SignInTags;
+}
 
 export const SignInMachine = setup({
   actors: {
@@ -54,27 +59,30 @@ export const SignInMachine = setup({
     waitForClerk,
   },
   actions: {
-    assignResourceToContext: assign({
-      resource: ({ event }) => {
-        assertActorEventDone<SignInResource>(event);
-        return event.output;
-      },
-    }),
-
-    assignErrorMessageToContext: assign({
-      error: ({ event }) => {
-        assertActorEventError(event);
-        return event.error;
-      },
-    }),
-
-    navigateTo: ({ context }, { path }: { path: string }) => context.router.replace(path),
-
-    clearFields: assign({
-      fields: new Map(),
-    }),
+    navigateTo({ context }, { path }: { path: string }) {
+      context.router.replace(path);
+    },
+    setAsActive: ({ context }) => {
+      const beforeEmit = () => {
+        return context.router.push(context.clerk.buildAfterSignInUrl());
+      };
+      void context.clerk.setActive({ session: context.resource?.createdSessionId, beforeEmit });
+    },
   },
   guards: {
+    isServer: ({ context }) => context.mode === 'server',
+    isBrowser: ({ context }) => context.mode === 'browser',
+    isClerkLoaded: ({ context }) => context.clerk.loaded,
+    isClerkEnvironmentLoaded: ({ context }) => Boolean(context.clerk.__unstable__environment),
+    isComplete: ({ context }) => {
+      console.log(context?.resource);
+      return context?.resource?.status === 'complete';
+    },
+    isLoggedIn: ({ context }) => Boolean(context.clerk.user),
+    isSingleSessionMode: ({ context }) => Boolean(context.clerk.__unstable__environment?.authConfig.singleSessionMode),
+    needsFirstFactor: ({ context }) => context.resource?.status === 'needs_first_factor',
+    needsSecondFactor: ({ context }) => context.resource?.status === 'needs_second_factor',
+    hasSignInResource: ({ context }) => Boolean(context.resource),
     hasClerkAPIError: ({ context }) => isClerkAPIResponseError(context.error),
     hasClerkAPIErrorCode: ({ context }, params?: { code?: string }) =>
       params?.code
@@ -83,19 +91,21 @@ export const SignInMachine = setup({
           : false
         : false,
   },
-  types: {
-    context: {} as SignInMachineContext,
-    input: {} as SignInMachineInput,
-    events: {} as SignInMachineEvents,
-  },
+  types: {} as SignInMachineTypes,
 }).createMachine({
-  context: ({ input }) => ({
-    clerk: input.clerk,
-    router: input.router,
-    currentFactor: null,
-    fields: new Map(),
-  }),
-  initial: 'Init',
+  id: 'SignIn',
+  context: ({ input }) => {
+    console.debug({ clerk: { mode: input.clerk.mode, loaded: input.clerk.loaded } });
+
+    return {
+      clerk: input.clerk,
+      mode: input.clerk.mode,
+      loaded: input.clerk.loaded,
+      router: input.router,
+      resource: null,
+      fields: new Map(),
+    };
+  },
   on: {
     'FIELD.ADD': {
       actions: assign({
@@ -135,7 +145,6 @@ export const SignInMachine = setup({
       actions: assign({
         fields: ({ context, event }) => {
           if (!event.field.type) throw new Error('Field type is required');
-
           if (context.fields.has(event.field.type)) {
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             context.fields.get(event.field.type)!.error = event.field.error;
@@ -145,77 +154,138 @@ export const SignInMachine = setup({
         },
       }),
     },
-    'OAUTH.CALLBACK': goToChildState('SSOCallbackRunning'),
+    'OAUTH.CALLBACK': '#SignIn.SSOCallbackRunning',
   },
+  initial: 'DeterminingState',
   states: {
-    Init: {
+    DeterminingState: {
+      always: [
+        {
+          description: 'Wait for the Clerk instance to be ready. [BROWSER]',
+          guard: and(['isBrowser', not('isClerkLoaded')]),
+          target: 'WaitingForClerk',
+        },
+        {
+          description: 'If the SignIn resource is empty, invoke the sign-in start flow. [BROWSER]',
+          guard: and(['isBrowser', 'isClerkLoaded', not('hasSignInResource')]),
+          target: 'Start',
+        },
+        {
+          guard: 'isComplete',
+          target: 'Complete',
+        },
+        {
+          guard: 'needsFirstFactor',
+          target: 'FirstFactor',
+        },
+        {
+          guard: 'needsSecondFactor',
+          target: 'SecondFactor',
+        },
+      ],
+    },
+    WaitingForClerk: {
       invoke: {
         src: 'waitForClerk',
         input: ({ context }) => context.clerk,
         onDone: {
-          target: 'Start',
+          target: 'DeterminingState',
           actions: assign({
             // @ts-expect-error -- this is really IsomorphicClerk up to this point
             clerk: ({ context }) => context.clerk.clerkjs,
-            enabledThirdPartyProviders: ({ context }) =>
-              getEnabledThirdPartyProviders(context.clerk.__unstable__environment),
+            environment: ({ context }) => context.clerk.__unstable__environment,
           }),
         },
       },
     },
     Start: {
-      entry: ({ context }) => console.log('Start entry: ', context),
-      on: {
-        'AUTHENTICATE.OAUTH': 'InitiatingOAuthAuthentication',
-        // 'AUTHENTICATE.WEB3': 'InitiatingWeb3Authentication',
-        SUBMIT: 'StartAttempting',
-      },
-    },
-    StartAttempting: {
-      entry: () => console.log('StartAttempting'),
-      invoke: {
-        src: 'createSignIn',
-        input: ({ context }) => ({
-          client: context.clerk.client,
-          fields: context.fields,
-        }),
-        onDone: { actions: 'assignResourceToContext' },
-        onError: {
-          target: 'StartFailure',
-          actions: 'assignErrorMessageToContext',
-        },
-      },
-      always: [
-        {
-          guard: ({ context }) => context?.resource?.status === 'complete',
-          target: 'Complete',
-        },
-        {
-          guard: ({ context }) => context?.resource?.status === 'needs_first_factor',
-          target: 'FirstFactor',
-        },
-      ],
-    },
-    StartFailure: {
-      entry: ({ context }) => console.log('StartFailure entry: ', context),
-      always: [
-        {
-          guard: { type: 'hasClerkAPIErrorCode', params: { code: 'session_exists' } },
-          actions: [
+      description: 'Waiting for user input',
+      initial: 'DeterminingState',
+      states: {
+        DeterminingState: {
+          always: [
             {
-              type: 'navigateTo',
-              params: {
-                path: '/',
-              },
+              guard: and(['isBrowser', not('isClerkEnvironmentLoaded')]),
+              target: 'WaitingForClerkEnvironment',
+            },
+            {
+              description: 'If the Clerk instance is ready, continue. [BROWSER]',
+              guard: and(['isClerkEnvironmentLoaded', 'isLoggedIn', 'isSingleSessionMode']),
+              target: 'AwaitingInput',
+              actions: log('isLoggedIn / isSingleSession - Should show error or redirect'),
+            },
+            {
+              target: 'AwaitingInput',
+              guard: and(['isClerkEnvironmentLoaded', not('isLoggedIn')]),
             },
           ],
+          exit: assign({
+            environment: ({ context }) => context.clerk.__unstable__environment,
+          }),
         },
-        {
-          guard: 'hasClerkAPIError',
-          target: 'Start',
+        // TODO: Implement a better approach (works for now)
+        WaitingForClerkEnvironment: {
+          after: {
+            25: {
+              guard: and(['isBrowser', not('isClerkEnvironmentLoaded')]),
+              target: 'DeterminingState',
+            },
+          },
         },
-      ],
+        AwaitingInput: {
+          on: {
+            'AUTHENTICATE.OAUTH': '#SignIn.InitiatingOAuthAuthentication',
+            SUBMIT: 'Attempting',
+          },
+        },
+        Attempting: {
+          invoke: {
+            id: 'createSignIn',
+            src: 'createSignIn',
+            input: ({ context }) => ({
+              client: context.clerk.client,
+              fields: context.fields,
+              params: context.params || {},
+            }),
+            onDone: {
+              actions: assign({
+                resource: ({ event }) => event.output,
+              }),
+              target: 'Success',
+            },
+            onError: {
+              actions: enqueueActions(({ enqueue, event }) => {
+                if (isClerkAPIResponseError(event.error)) {
+                  for (const error of event.error.errors) {
+                    enqueue(() => console.debug(error));
+
+                    if (error.meta?.paramName)
+                      enqueue(
+                        raise({
+                          type: 'FIELD.ERROR',
+                          field: {
+                            type: error.meta.paramName,
+                            error: error,
+                          },
+                        }),
+                      );
+                  }
+                }
+              }),
+              target: 'AwaitingInput',
+            },
+          },
+        },
+
+        Success: {
+          always: {
+            actions: 'setAsActive',
+            guard: 'isComplete',
+          },
+        },
+      },
     },
+
     FirstFactor: {
       always: 'FirstFactorPreparing',
     },
@@ -231,7 +301,9 @@ export const SignInMachine = setup({
         onDone: {
           target: 'FirstFactor',
           actions: [
-            'assignResourceToContext',
+            assign({
+              resource: ({ event }) => event.output,
+            }),
             {
               type: 'navigateTo',
               params: {
@@ -242,14 +314,13 @@ export const SignInMachine = setup({
         },
         onError: {
           target: 'Start',
-          actions: ['assignErrorMessageToContext'],
+          actions: assign({ error: ({ event }) => event.error as Error }),
         },
       },
     },
     FirstFactorIdle: {
       on: {
         SUBMIT: {
-          // guard: ({ context }) => !!context.resource,
           target: 'FirstFactorAttempting',
         },
       },
@@ -266,7 +337,9 @@ export const SignInMachine = setup({
         onDone: {
           target: 'FirstFactor',
           actions: [
-            'assignResourceToContext',
+            assign({
+              resource: ({ event }) => event.output,
+            }),
             {
               type: 'navigateTo',
               params: {
@@ -277,7 +350,7 @@ export const SignInMachine = setup({
         },
         onError: {
           target: 'FirstFactorIdle',
-          actions: 'assignErrorMessageToContext',
+          actions: assign({ error: ({ event }) => event.error as Error }),
         },
       },
     },
@@ -311,11 +384,13 @@ export const SignInMachine = setup({
         }),
         onDone: {
           target: 'SecondFactorIdle',
-          actions: ['assignResourceToContext'],
+          actions: assign({
+            resource: ({ event }) => event.output,
+          }),
         },
         onError: {
           target: 'SecondFactorIdle',
-          actions: ['assignErrorMessageToContext'],
+          actions: assign({ error: ({ event }) => event.error as Error }),
         },
       },
     },
@@ -340,7 +415,9 @@ export const SignInMachine = setup({
         onDone: {
           target: 'SecondFactorIdle',
           actions: [
-            'assignResourceToContext',
+            assign({
+              resource: ({ event }) => event.output,
+            }),
             {
               type: 'navigateTo',
               params: {
@@ -351,7 +428,7 @@ export const SignInMachine = setup({
         },
         onError: {
           target: 'SecondFactorIdle',
-          actions: ['assignErrorMessageToContext'],
+          actions: assign({ error: ({ event }) => event.error as Error }),
         },
       },
       SecondFactorFailure: {
@@ -376,10 +453,11 @@ export const SignInMachine = setup({
           },
           router: context.router,
         }),
-        onDone: { actions: 'assignResourceToContext' },
+        onDone: {
+          actions: assign({ resource: ({ event }) => event.output as SignInResource }),
+        },
         onError: {
-          target: 'StartFailure',
-          actions: 'assignErrorMessageToContext',
+          actions: assign({ error: ({ event }) => event.error as Error }),
         },
       },
       always: [
@@ -406,21 +484,10 @@ export const SignInMachine = setup({
           };
         },
         onError: {
-          target: 'StartFailure',
-          actions: 'assignErrorMessageToContext',
+          actions: assign({ error: ({ event }) => event.error as Error }),
         },
       },
     },
-    // InitiatingWeb3Authentication: {
-    //   entry: () => console.log('InitiatingWeb3Authentication'),
-    //   invoke: {
-    //     src: 'authenticateWithMetamask',
-    //     onError: {
-    //       target: 'StartFailure',
-    //       actions: 'assignErrorMessageToContext',
-    //     },
-    //   },
-    // },
     Complete: {
       type: 'final',
       entry: ({ context }) => {

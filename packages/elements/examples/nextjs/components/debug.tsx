@@ -14,24 +14,35 @@ export function Button(props: React.ComponentProps<'button'>) {
   );
 }
 
-export function Debug() {
-  const ref = useSignInFlow();
-
+function ActiveState() {
   const activeState = useSignInFlowSelector(state => state.value);
 
   return (
+    <div className='flex gap-4 bottom-0 w-screen justify-center'>
+      <pre suppressHydrationWarning>Active State: {activeState ? JSON.stringify({ ...activeState }) : ''}</pre>
+    </div>
+  );
+}
+
+function LogButtons() {
+  const ref = useSignInFlow();
+
+  return (
+    <>
+      <Button onClick={() => console.dir(ref.getSnapshot().context.fields)}>Log Fields</Button>
+      <Button onClick={() => console.dir(ref.getSnapshot().context)}>Log Context</Button>
+      <Button onClick={() => console.dir(ref.getSnapshot().context.environment)}>Log Environment</Button>
+    </>
+  );
+}
+
+export function Debug() {
+  return (
     <div className='absolute text-xs flex flex-col p-4 gap-4 bottom-0 w-screen justify-center bg-secondary border-tertiary border-t'>
-      <div className='flex gap-4 bottom-0 w-screen justify-center'>
-        <pre suppressHydrationWarning>Active State: {activeState ? JSON.stringify({ ...activeState }) : ''}</pre>
-      </div>
+      <ActiveState />
 
       <div className='flex gap-4 bottom-0 w-screen justify-center'>
-        <Button onClick={() => console.dir(ref.getSnapshot().context.fields)}>Log Fields</Button>
-        <Button onClick={() => console.dir(ref.getSnapshot().context)}>Log Context</Button>
-        <Button onClick={() => console.dir(ref.getSnapshot().context.clerk.__unstable__environment)}>
-          Log Environment
-        </Button>
-
+        <LogButtons />
         <SignedIn>
           <SignOutButton redirectUrl='/sign-in'>
             <Button>Sign Out</Button>

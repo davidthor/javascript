@@ -45,7 +45,6 @@ export type SignInMachineEvents =
   | { type: 'SUBMIT' };
 
 export type SignInTags = 'start' | 'first-factor' | 'second-factor' | 'complete';
-
 export interface SignInMachineTypes {
   context: SignInMachineContext;
   input: SignInMachineInput;
@@ -74,7 +73,7 @@ export const SignInMachine = setup({
     isBrowser: ({ context }) => context.mode === 'browser',
     isClerkLoaded: ({ context }) => context.clerk.loaded,
     isClerkEnvironmentLoaded: ({ context }) => Boolean(context.clerk.__unstable__environment),
-    isComplete: ({ context }) => context?.resource?.status === 'complete',
+    isSignInComplete: ({ context }) => context?.resource?.status === 'complete',
     isLoggedIn: ({ context }) => Boolean(context.clerk.user),
     isSingleSessionMode: ({ context }) => Boolean(context.clerk.__unstable__environment?.authConfig.singleSessionMode),
     needsFirstFactor: ({ context }) => context.resource?.status === 'needs_first_factor',
@@ -157,37 +156,72 @@ export const SignInMachine = setup({
   initial: 'DeterminingState',
   states: {
     DeterminingState: {
-      always: [
-        {
-          description: 'Wait for the Clerk instance to be ready.',
-          guard: and(['isBrowser', not('isClerkLoaded')]),
-          target: 'WaitingForClerk',
+      initial: 'Init',
+      states: {
+        Init: {
+          always: [
+            {
+              description: 'If the SignIn resource is empty, invoke the sign-in start flow.',
+              guard: 'isServer',
+              target: 'Server',
+            },
+            {
+              description: 'Wait for the Clerk instance to be ready.',
+              guard: 'isBrowser',
+              target: 'Browser',
+            },
+          ],
         },
-        {
-          description: 'If the SignIn resource is empty, invoke the sign-in start flow.',
-          guard: and(['isBrowser', 'isClerkLoaded', not('hasSignInResource')]),
-          target: 'Start',
+        Server: {
+          description: 'Determines the state of the sign-in flow on the server. This is a no-op for now. [TODO]',
+          entry: ({ context, event }) => console.debug('SERVER STATE', context, event),
         },
-        {
-          guard: 'isComplete',
-          target: 'Complete',
+        Browser: {
+          description: 'Determines the state of the sign-in flow on the browser.',
+          always: [
+            {
+              description: 'Wait for the Clerk instance to be ready.',
+              guard: not('isClerkLoaded'),
+              target: '#SignIn.WaitingForClerk',
+            },
+            {
+              description: 'If the SignIn resource is empty, invoke the sign-in start flow.',
+              guard: and(['isLoggedIn', 'isSingleSessionMode']),
+              actions: assign({ error: () => new Error('Already logged in.') }),
+              target: '#SignIn.Start',
+            },
+            {
+              description: 'If the SignIn resource is empty, invoke the sign-in start flow.',
+              guard: and(['isBrowser', not('hasSignInResource')]),
+              target: '#SignIn.Start',
+            },
+            {
+              guard: 'isSignInComplete',
+              target: '#SignIn.Complete',
+            },
+            {
+              guard: 'needsFirstFactor',
+              target: '#SignIn.FirstFactor',
+            },
+            {
+              guard: 'needsSecondFactor',
+              target: '#SignIn.SecondFactor',
+            },
+            // {
+            //   guard: 'ssoCallback',
+            // }
+          ],
+          exit: ({ context, event }) => console.debug(context, event),
         },
-        {
-          guard: 'needsFirstFactor',
-          target: 'FirstFactor',
-        },
-        {
-          guard: 'needsSecondFactor',
-          target: 'SecondFactor',
-        },
-      ],
+      },
     },
     WaitingForClerk: {
+      description: 'Waits for the Clerk instance to be ready.',
       invoke: {
         src: 'waitForClerk',
         input: ({ context }) => context.clerk,
         onDone: {
-          target: 'DeterminingState',
+          target: 'DeterminingState.Browser',
           actions: assign({
             // @ts-expect-error -- this is really IsomorphicClerk up to this point
             clerk: ({ context }) => context.clerk.clerkjs,
@@ -261,7 +295,7 @@ export const SignInMachine = setup({
         Success: {
           always: {
             actions: 'setAsActive',
-            guard: 'isComplete',
+            guard: 'isSignInComplete',
           },
         },
       },
@@ -461,6 +495,7 @@ export const SignInMachine = setup({
 
           return {
             clerk: context.clerk,
+            environment: context.environment,
             strategy: event.strategy,
           };
         },

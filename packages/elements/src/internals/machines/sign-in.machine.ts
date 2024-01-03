@@ -58,6 +58,7 @@ export const SignInMachine = setup({
     waitForClerk,
   },
   actions: {
+    debug: ({ context, event }, params?: Record<string, unknown>) => console.dir({ context, event, params }),
     navigateTo({ context }, { path }: { path: string }) {
       context.router.replace(path);
     },
@@ -174,7 +175,7 @@ export const SignInMachine = setup({
         },
         Server: {
           description: 'Determines the state of the sign-in flow on the server. This is a no-op for now. [TODO]',
-          entry: ({ context, event }) => console.debug('SERVER STATE', context, event),
+          entry: 'debug',
         },
         Browser: {
           description: 'Determines the state of the sign-in flow on the browser.',
@@ -211,7 +212,7 @@ export const SignInMachine = setup({
             //   guard: 'ssoCallback',
             // }
           ],
-          exit: ({ context, event }) => console.debug(context, event),
+          exit: 'debug',
         },
       },
     },
@@ -457,7 +458,6 @@ export const SignInMachine = setup({
       },
     },
     SSOCallbackRunning: {
-      entry: () => console.log('StartAttempting'),
       invoke: {
         src: 'handleSSOCallback',
         input: ({ context }) => ({
@@ -487,7 +487,6 @@ export const SignInMachine = setup({
       ],
     },
     InitiatingOAuthAuthentication: {
-      entry: () => console.log('InitiatingOAuthAuthentication'),
       invoke: {
         src: 'authenticateWithRedirect',
         input: ({ context, event }) => {

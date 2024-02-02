@@ -174,8 +174,10 @@ export const SignOutAllActions = (props: SignOutAllActionsProps) => {
         icon={SignOut}
         label={localizationKeys('userButton.action__signOutAll')}
         onClick={handleSignOutAllClicked}
+        variant='action'
+        colorScheme='danger'
         sx={t => ({
-          color: t.colors.$colorTextSecondary,
+          backgroundColor: t.colors.$transparent,
           padding: `${t.space.$2} ${t.space.$3}`,
           borderBottom: 'none',
           borderRadius: t.radii.$lg,

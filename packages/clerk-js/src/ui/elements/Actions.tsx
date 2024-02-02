@@ -181,7 +181,7 @@ export const Action = (props: ActionProps) => {
   return (
     <Button
       size='md'
-      variant='ghost'
+      variant='action'
       textVariant='buttonLarge'
       hoverAsFocus
       focusRing={false}

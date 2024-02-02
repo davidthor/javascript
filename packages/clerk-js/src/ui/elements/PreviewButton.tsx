@@ -16,7 +16,8 @@ export const PreviewButton = (props: PreviewButtonProps) => {
 
   return (
     <Button
-      variant='ghost'
+      variant='action'
+      colorScheme='secondary'
       focusRing={false}
       block
       hoverAsFocus

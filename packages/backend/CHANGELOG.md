@@ -1,5 +1,37 @@
 # Change Log
 
+## 1.0.0-beta-v5.19
+
+### Minor Changes
+
+- Add support for X/Twitter v2 OAuth provider ([#2690](https://github.com/clerk/javascript/pull/2690)) by [@kostaspt](https://github.com/kostaspt)
+
+### Patch Changes
+
+- Expose resources types ([#2660](https://github.com/clerk/javascript/pull/2660)) by [@panteliselef](https://github.com/panteliselef)
+
+- The `auth().redirectToSignIn()` helper no longer needs to be explicitly returned when called within the middleware. The following examples are now equivalent: ([#2691](https://github.com/clerk/javascript/pull/2691)) by [@nikosdouvlis](https://github.com/nikosdouvlis)
+
+  ```js
+  // Before
+  export default clerkMiddleware(auth => {
+    if (protectedRoute && !auth.user) {
+      return auth().redirectToSignIn()
+    }
+  })
+
+  // After
+  export default clerkMiddleware(auth => {
+    if (protectedRoute && !auth.user) {
+      auth().redirectToSignIn()
+    }
+  })
+  ```
+
+  Calling `auth().protect()` from a page will now automatically redirect back to the same page by setting `redirect_url` to the request url before the redirect to the sign-in URL takes place.
+
+- Fix `clerkClient.organizations.getOrganizationMembershipList()` return type to be `{ data, totalCount }` ([#2681](https://github.com/clerk/javascript/pull/2681)) by [@dimkl](https://github.com/dimkl)
+
 ## 1.0.0-beta-v5.18
 
 ### Major Changes

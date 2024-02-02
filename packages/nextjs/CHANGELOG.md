@@ -1,5 +1,41 @@
 # Change Log
 
+## 5.0.0-beta-v5.21
+
+### Minor Changes
+
+- Replace redirectUrl of protect with `unauthorizedUrl` and `unauthenticatedUrl`. ([#2672](https://github.com/clerk/javascript/pull/2672)) by [@panteliselef](https://github.com/panteliselef)
+
+### Patch Changes
+
+- The `auth().redirectToSignIn()` helper no longer needs to be explicitly returned when called within the middleware. The following examples are now equivalent: ([#2691](https://github.com/clerk/javascript/pull/2691)) by [@nikosdouvlis](https://github.com/nikosdouvlis)
+
+  ```js
+  // Before
+  export default clerkMiddleware(auth => {
+    if (protectedRoute && !auth.user) {
+      return auth().redirectToSignIn()
+    }
+  })
+
+  // After
+  export default clerkMiddleware(auth => {
+    if (protectedRoute && !auth.user) {
+      auth().redirectToSignIn()
+    }
+  })
+  ```
+
+  Calling `auth().protect()` from a page will now automatically redirect back to the same page by setting `redirect_url` to the request url before the redirect to the sign-in URL takes place.
+
+- Remove usage of useSearchParams() to avoid CSR de-opt. ([#2651](https://github.com/clerk/javascript/pull/2651)) by [@BRKalow](https://github.com/BRKalow)
+
+- Expose resources types ([#2660](https://github.com/clerk/javascript/pull/2660)) by [@panteliselef](https://github.com/panteliselef)
+
+- Updated dependencies [[`a8901be64`](https://github.com/clerk/javascript/commit/a8901be64fe91125a0d38a3c880ffa73168ccf5c), [`7b200af49`](https://github.com/clerk/javascript/commit/7b200af4908839ea661ddf2a76811057b545cafc), [`034c47ccb`](https://github.com/clerk/javascript/commit/034c47ccbef0129b9be9ff8aef683aa039e52602), [`7f751c4ef`](https://github.com/clerk/javascript/commit/7f751c4ef2d14410058cf65ea984a93b50c0b87e)]:
+  - @clerk/backend@1.0.0-beta-v5.19
+  - @clerk/clerk-react@5.0.0-beta-v5.18
+
 ## 5.0.0-beta-v5.20
 
 ### Patch Changes

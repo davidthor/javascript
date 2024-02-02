@@ -1,5 +1,11 @@
 # Change Log
 
+## 4.0.0-beta-v5.14
+
+### Minor Changes
+
+- Add support for X/Twitter v2 OAuth provider ([#2690](https://github.com/clerk/javascript/pull/2690)) by [@kostaspt](https://github.com/kostaspt)
+
 ## 4.0.0-beta-v5.13
 
 ### Major Changes

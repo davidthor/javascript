@@ -1,5 +1,23 @@
 # Change Log
 
+## 5.0.0-beta-v5.21
+
+### Minor Changes
+
+- Add support for X/Twitter v2 OAuth provider ([#2690](https://github.com/clerk/javascript/pull/2690)) by [@kostaspt](https://github.com/kostaspt)
+
+### Patch Changes
+
+- Update cookie setting to ensure cookies can be set to be read when an application is embedded in an iframe. ([#2688](https://github.com/clerk/javascript/pull/2688)) by [@SokratisVidros](https://github.com/SokratisVidros)
+
+- Escape characters in pattern for inputs of [type="email"] ([#2712](https://github.com/clerk/javascript/pull/2712)) by [@panteliselef](https://github.com/panteliselef)
+
+- Fix redirect flow for OAuth2 IDP flow with email_link verification. ([#2677](https://github.com/clerk/javascript/pull/2677)) by [@mzhong9723](https://github.com/mzhong9723)
+
+- Updated dependencies [[`5b8d85886`](https://github.com/clerk/javascript/commit/5b8d85886843fe20c06527b9f015b8c9a03e6b1b), [`7f751c4ef`](https://github.com/clerk/javascript/commit/7f751c4ef2d14410058cf65ea984a93b50c0b87e)]:
+  - @clerk/localizations@2.0.0-beta-v5.13
+  - @clerk/types@4.0.0-beta-v5.14
+
 ## 5.0.0-beta-v5.20
 
 ### Patch Changes

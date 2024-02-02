@@ -4,9 +4,11 @@ import React from 'react';
 import { descriptors, Icon, Spinner } from '../customizables';
 import { ArrowRightButtonIcon } from '../icons';
 import type { PrimitiveProps, StyleVariants } from '../styledSystem';
-import { common, createVariants } from '../styledSystem';
+import { common, createCssVariables, createVariants } from '../styledSystem';
 import { applyDataStateProps } from './applyDataStateProps';
 import { Flex } from './Flex';
+
+const vars = createCssVariables('accent', 'accentContrast', 'alpha', 'accentLightnessAdjusted');
 
 const { applyVariants, filterProps } = createVariants((theme, props: OwnProps) => {
   return {
@@ -43,91 +45,80 @@ const { applyVariants, filterProps } = createVariants((theme, props: OwnProps) =
           padding: `${theme.space.$2x5} ${theme.space.$5}`,
         },
       },
-      variant: {
+      colorScheme: {
         primary: {
-          backgroundColor: theme.colors.$primary500,
-          color: theme.colors.$colorTextOnPrimaryBackground,
-          boxShadow: theme.shadows.$buttonShadow,
-          border: theme.borders.$normal,
-          borderColor: theme.colors.$primary500,
-          ':after': {
-            position: 'absolute',
-            content: '""',
-            borderRadius: 'inherit',
-            zIndex: -1,
-            inset: 0,
-            opacity: 1,
-            transitionProperty: theme.transitionProperty.$common,
-            transitionDuration: theme.transitionDuration.$controls,
-            background: `linear-gradient(180deg, ${theme.colors.$whiteAlpha150} 0%, ${theme.colors.$transparent} 100%)`,
-          },
-          ':hover::after': {
-            opacity: 0,
-          },
-          ':active::after': {
-            opacity: 1,
-          },
-        },
-        primaryDanger: {
-          backgroundColor: theme.colors.$danger500,
-          color: theme.colors.$colorTextOnPrimaryBackground,
-          boxShadow: theme.shadows.$buttonShadow,
-          border: theme.borders.$normal,
-          borderColor: theme.colors.$danger500,
-          ':after': {
-            position: 'absolute',
-            content: '""',
-            borderRadius: 'inherit',
-            zIndex: -1,
-            inset: 0,
-            opacity: 1,
-            transitionProperty: theme.transitionProperty.$common,
-            transitionDuration: theme.transitionDuration.$controls,
-            background: `linear-gradient(180deg, ${theme.colors.$whiteAlpha150} 0%, ${theme.colors.$transparent} 100%)`,
-          },
-          ':hover::after': {
-            opacity: 0,
-          },
-          ':active::after': {
-            opacity: 1,
-          },
+          [vars.accent]: theme.colors.$primary500,
+          [vars.accentContrast]: theme.colors.$colorTextOnPrimaryBackground,
+          [vars.accentLightnessAdjusted]: theme.colors.$primary400,
+          [vars.alpha]: theme.colors.$blackAlpha50, //TODO-RETHEME replace with appearance.accent
         },
         secondary: {
-          color: theme.colors.$colorTextOnSecondaryBackground,
-          background: theme.colors.$secondary500,
+          [vars.accent]: theme.colors.$secondary500,
+          [vars.accentContrast]: theme.colors.$colorTextOnSecondaryBackground,
+          [vars.accentLightnessAdjusted]: theme.colors.$secondaryHover,
+          [vars.alpha]: theme.colors.$blackAlpha50, //TODO-RETHEME replace with appearance.accent
+        },
+        danger: {
+          [vars.accent]: theme.colors.$danger500,
+          [vars.accentContrast]: theme.colors.$white,
+          [vars.accentLightnessAdjusted]: theme.colors.$dangerAlpha400,
+          [vars.alpha]: theme.colors.$dangerAlpha50,
+        },
+      },
+      variant: {
+        solid: {
+          backgroundColor: vars.accent,
+          color: vars.accentContrast,
+          boxShadow: theme.shadows.$buttonShadow,
+          border: theme.borders.$normal,
+          borderColor: vars.accent,
+          ':after': {
+            position: 'absolute',
+            content: '""',
+            borderRadius: 'inherit',
+            zIndex: -1,
+            inset: 0,
+            opacity: 1,
+            transitionProperty: theme.transitionProperty.$common,
+            transitionDuration: theme.transitionDuration.$controls,
+            background: `linear-gradient(180deg, ${theme.colors.$whiteAlpha150} 0%, ${theme.colors.$transparent} 100%)`,
+          },
+          ':hover::after': {
+            opacity: 0,
+          },
+          ':active::after': {
+            opacity: 1,
+          },
+        },
+        outline: {
+          color: vars.accentContrast,
+          backgroundColor: vars.accent,
           '&:hover': {
-            color: theme.colors.$colorTextOnSecondaryBackground,
-            background: theme.colors.$secondaryHover,
+            color: vars.accentContrast,
+            backgroundColor: vars.accentLightnessAdjusted,
           },
           '&:focus': props.hoverAsFocus
             ? {
-                color: theme.colors.$colorTextOnSecondaryBackground,
-                background: theme.colors.$secondaryHover,
+                color: vars.accentContrast,
+                backgroundColor: vars.accentLightnessAdjusted,
               }
             : undefined,
-          '&:active': { backgroundColor: theme.colors.$secondary500 },
+          '&:active': { backgroundColor: vars.accent },
           boxShadow: theme.shadows.$secondaryButtonShadow,
           border: theme.borders.$normal,
           borderColor: theme.colors.$blackAlpha100,
         },
         ghost: {
-          color: theme.colors.$primary500,
+          color: vars.accent,
           '&:hover': {
-            color: theme.colors.$primary500,
-            backgroundColor: theme.colors.$blackAlpha50,
+            color: vars.accent,
+            backgroundColor: vars.alpha,
           },
           '&:focus': props.hoverAsFocus
             ? {
-                color: theme.colors.$primary500,
-                backgroundColor: theme.colors.$blackAlpha50,
+                color: vars.accent,
+                backgroundColor: vars.alpha,
               }
-            : undefined,
-        },
-        ghostDanger: {
-          color: theme.colors.$danger500,
-          '&:hover': { color: theme.colors.$danger500, backgroundColor: theme.colors.$dangerAlpha50 },
-          '&:focus': props.hoverAsFocus
-            ? { color: theme.colors.$danger500, backgroundColor: theme.colors.$danger50 }
             : undefined,
         },
         link: {
@@ -162,7 +153,8 @@ const { applyVariants, filterProps } = createVariants((theme, props: OwnProps) =
     },
     defaultVariants: {
       textVariant: 'buttonLarge',
-      variant: 'primary',
+      variant: 'solid',
+      colorScheme: 'primary',
       size: 'sm',
       focusRing: true,
     },
@@ -230,7 +222,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>((props, ref) => 
       onClick={onClick}
       disabled={isDisabled}
       css={applyVariants(parsedProps) as any}
-      data-variant={props.variant || 'primary'}
+      data-variant={props.variant || 'solid'}
+      data-color={props.colorScheme || 'primary'}
       ref={ref}
     >
       {isLoading && (

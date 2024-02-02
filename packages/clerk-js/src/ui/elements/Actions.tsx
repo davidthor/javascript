@@ -69,7 +69,8 @@ export const ExtraSmallAction = (props: Omit<ActionProps, 'label'>) => {
   return (
     <SimpleButton
       size='xs'
-      variant='secondary'
+      variant='outline'
+      colorScheme='secondary'
       hoverAsFocus
       sx={[
         t => ({
@@ -120,7 +121,8 @@ export const SmallAction = (props: ActionProps) => {
   return (
     <Action
       size='xs'
-      variant='secondary'
+      variant='outline'
+      colorScheme='secondary'
       textVariant='buttonSmall'
       sx={[
         t => ({

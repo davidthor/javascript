@@ -169,7 +169,8 @@ const SocialButtonIcon = forwardRef((props: SocialButtonProps, ref: Ref<HTMLButt
       ref={ref}
       elementDescriptor={descriptors.socialButtonsIconButton}
       elementId={descriptors.socialButtonsIconButton.setId(id)}
-      variant='secondary'
+      variant='outline'
+      colorScheme='secondary'
       sx={t => ({
         minHeight: t.sizes.$8,
         width: '100%',
@@ -189,7 +190,8 @@ const SocialButtonBlock = (props: SocialButtonProps): JSX.Element => {
     <SimpleButton
       elementDescriptor={descriptors.socialButtonsBlockButton}
       elementId={descriptors.socialButtonsBlockButton.setId(id)}
-      variant='secondary'
+      variant='outline'
+      colorScheme='secondary'
       block
       isLoading={isLoading}
       {...rest}

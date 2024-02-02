@@ -32,7 +32,8 @@ const PageButton = (props: PageButtonProps) => {
   return (
     <Button
       size='xs'
-      variant='secondary'
+      variant='outline'
+      colorScheme='secondary'
       sx={t => [
         {
           color: t.colors.$colorText,

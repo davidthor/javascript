@@ -100,7 +100,8 @@ export const AvatarUploader = (props: AvatarUploaderProps) => {
               elementDescriptor={descriptors.avatarImageActionsUpload}
               localizationKey={localizationKeys('userProfile.profilePage.imageFormSubtitle')}
               isDisabled={card.isLoading}
-              variant='secondary'
+              variant='outline'
+              colorScheme='secondary'
               size='xs'
               onClick={openDialog}
             />
@@ -111,7 +112,8 @@ export const AvatarUploader = (props: AvatarUploaderProps) => {
                 localizationKey={localizationKeys('userProfile.profilePage.imageFormDestructiveActionSubtitle')}
                 isDisabled={card.isLoading}
                 sx={t => ({ color: t.colors.$danger500 })}
-                variant='ghostDanger'
+                variant='ghost'
+                colorScheme='danger'
                 onClick={handleRemove}
               />
             )}

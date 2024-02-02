@@ -23,6 +23,7 @@ export const createColorScales = (theme: Theme) => {
     ...colorOptionToHslaLightnessScale(variables.colorPrimary, 'primary'),
     ...colorOptionToHslaAlphaScale(variables.colorPrimary, 'primaryAlpha'),
     ...secondaryScale,
+    ...colorOptionToHslaAlphaScale(variables.colorSecondary, 'secondaryAlpha'),
     colorTextSecondary: textSecondary,
     ...colorOptionToHslaLightnessScale(variables.colorDanger, 'danger'),
     ...colorOptionToHslaAlphaScale(variables.colorDanger, 'dangerAlpha'),

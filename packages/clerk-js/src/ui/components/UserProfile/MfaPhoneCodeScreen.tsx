@@ -128,7 +128,8 @@ const AddMfa = (props: AddMfaProps) => {
             return (
               <Button
                 key={phone.id}
-                variant='secondary'
+                variant='outline'
+                colorScheme='secondary'
                 sx={{ justifyContent: 'start' }}
                 onClick={() => enableMfa(phone)}
                 isLoading={card.loadingMetadata === phone.id}
